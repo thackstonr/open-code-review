@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	allowedext "github.com/alibaba/open-code-review/internal/config/allowlist"
 	"github.com/alibaba/open-code-review/internal/diff"
 )
 
@@ -204,6 +205,9 @@ func (p *FileFindProvider) listWalkFiles(ctx context.Context) ([]string, error) 
 // shouldSkipFile returns true if a git ls-files output path should be skipped.
 // Keeps only widely useful files (those with recognizable extensions).
 func shouldSkipFile(path string) bool {
+	if allowedext.IsSecretPath(path) {
+		return true
+	}
 	// Keep extensionless build/config files like Makefile, Dockerfile, LICENSE
 	base := path
 	if idx := strings.LastIndex(path, "/"); idx != -1 {

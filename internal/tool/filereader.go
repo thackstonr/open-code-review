@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	allowedext "github.com/alibaba/open-code-review/internal/config/allowlist"
 	"github.com/alibaba/open-code-review/internal/gitcmd"
 	"github.com/alibaba/open-code-review/internal/pathutil"
 )
@@ -69,6 +70,9 @@ type FileReader struct {
 // - Workspace: reads directly from the filesystem.
 // - Range / Commit: uses `git show <Ref>:<path>` to read at the given ref.
 func (fr *FileReader) Read(ctx context.Context, path string) (string, error) {
+	if allowedext.IsSecretPath(filepath.ToSlash(path)) {
+		return "", fmt.Errorf("refusing to read built-in secret path %q", path)
+	}
 	switch fr.Mode {
 	case ModeWorkspace:
 		return fr.readFromDisk(path)
@@ -112,6 +116,13 @@ func (fr *FileReader) resolveWorkspacePath(path string) (string, error) {
 	if !pathutil.WithinBase(repoRoot, resolvedPath) {
 		return "", fmt.Errorf("file path %q is outside repository", path)
 	}
+	resolvedRel, err := filepath.Rel(repoRoot, resolvedPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve file %q relative to repository: %w", path, err)
+	}
+	if allowedext.IsSecretPath(filepath.ToSlash(resolvedRel)) {
+		return "", fmt.Errorf("refusing to read built-in secret path %q", path)
+	}
 	return resolvedPath, nil
 }
 
@@ -140,6 +151,9 @@ func (fr *FileReader) readFromGitShow(parentCtx context.Context, path string) (s
 // ReadLines returns a window of lines from the file plus the total line count.
 // startLine is 1-based; maxLines is the maximum number of lines to collect.
 func (fr *FileReader) ReadLines(ctx context.Context, path string, startLine, maxLines int) ([]string, int, error) {
+	if allowedext.IsSecretPath(filepath.ToSlash(path)) {
+		return nil, 0, fmt.Errorf("refusing to read built-in secret path %q", path)
+	}
 	switch fr.Mode {
 	case ModeWorkspace:
 		return fr.readLinesFromDisk(path, startLine, maxLines)

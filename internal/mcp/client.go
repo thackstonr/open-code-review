@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/alibaba/open-code-review/internal/egress"
+	"github.com/alibaba/open-code-review/internal/llm"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -42,7 +45,7 @@ var subprocessTerminateDuration = SubprocessTerminateDuration
 // When dir is non-empty, the subprocess runs with that working directory.
 func NewClient(ctx context.Context, name, command string, args, env []string, dir, version string) (*Client, error) {
 	cmd := exec.Command(command, args...)
-	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = SanitizedEnv(env)
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -82,11 +85,31 @@ func NewClient(ctx context.Context, name, command string, args, env []string, di
 // Header values may contain $ENV_VAR references which are expanded at runtime.
 // Returns an error if any header value expands to an empty string.
 func NewRemoteClient(ctx context.Context, name, url string, headers map[string]string, version string) (*Client, error) {
+	if err := egress.CheckEndpoint(url); err != nil {
+		return nil, fmt.Errorf("remote MCP server %q: %w", name, err)
+	}
+	endpoint, err := neturl.Parse(url)
+	if err != nil {
+		return nil, fmt.Errorf("remote MCP server %q: parse endpoint: %w", name, err)
+	}
 	var expanded map[string]string
 	if len(headers) > 0 {
 		expanded = make(map[string]string, len(headers))
 		for k, v := range headers {
-			expanded[k] = os.Expand(v, os.Getenv)
+			var blocked string
+			expanded[k] = os.Expand(v, func(envName string) string {
+				if sensitiveEnv[strings.ToUpper(envName)] {
+					if blocked == "" {
+						blocked = envName
+					}
+					return ""
+				}
+				return os.Getenv(envName)
+			})
+			if blocked != "" {
+				return nil, fmt.Errorf("MCP server %q header %q references credential variable %q, "+
+					"which open-code-review does not forward to MCP servers", name, k, blocked)
+			}
 			if expanded[k] == "" {
 				return nil, fmt.Errorf("MCP server %q header %q expanded to empty value — check your environment variables", name, k)
 			}
@@ -97,7 +120,9 @@ func NewRemoteClient(ctx context.Context, name, url string, headers map[string]s
 			base:       http.DefaultTransport,
 			headers:    expanded,
 			serverName: name,
+			endpoint:   endpoint,
 		},
+		CheckRedirect: egress.CheckRedirect,
 	}
 
 	client := mcp.NewClient(
@@ -140,9 +165,16 @@ type headerTransport struct {
 	base       http.RoundTripper
 	headers    map[string]string
 	serverName string
+	endpoint   *neturl.URL
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := egress.CheckEndpoint(req.URL.String()); err != nil {
+		return nil, fmt.Errorf("remote MCP server %q: %w", t.serverName, err)
+	}
+	if t.endpoint != nil && !egress.SameOrigin(t.endpoint, req.URL) {
+		return nil, fmt.Errorf("remote MCP server %q: refusing request to a different origin %q", t.serverName, req.URL)
+	}
 	cloned := req.Clone(req.Context())
 	for k, v := range t.headers {
 		cloned.Header.Set(k, v)
@@ -162,6 +194,42 @@ func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		return nil, fmt.Errorf("remote MCP server %q returned HTTP 403 Forbidden — your credentials may lack required permissions", t.serverName)
 	}
 	return resp, nil
+}
+
+// sensitiveEnv names the credential environment variables open-code-review
+// itself reads. They are refused inside MCP header templates so a remote MCP
+// config cannot exfiltrate the LLM/cloud credentials this process holds.
+// secrets under other names (e.g. a per-server API token) are unaffected.
+var sensitiveEnv = func() map[string]bool {
+	names := map[string]bool{
+		"ANTHROPIC_AUTH_TOKEN":              true,
+		"OCR_LLM_TOKEN":                     true,
+		"AWS_ACCESS_KEY_ID":                 true,
+		"AWS_SECRET_ACCESS_KEY":             true,
+		"AWS_SESSION_TOKEN":                 true,
+		"AWS_BEARER_TOKEN_BEDROCK":          true,
+		"AWS_CONTAINER_AUTHORIZATION_TOKEN": true,
+	}
+	for _, provider := range llm.ListProviders() {
+		if provider.EnvVar != "" {
+			names[strings.ToUpper(provider.EnvVar)] = true
+		}
+	}
+	return names
+}()
+
+// SanitizedEnv removes credentials used by OCR itself from an MCP subprocess.
+// Explicit MCP env entries are appended so operators can deliberately grant a server access.
+func SanitizedEnv(overrides []string) []string {
+	env := make([]string, 0, len(os.Environ())+len(overrides))
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if sensitiveEnv[strings.ToUpper(name)] {
+			continue
+		}
+		env = append(env, entry)
+	}
+	return append(env, overrides...)
 }
 
 func (c *Client) Name() string       { return c.name }

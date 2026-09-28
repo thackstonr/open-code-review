@@ -570,6 +570,7 @@ func initMCPClients(ctx context.Context, cfg *Config, tools *tool.Registry, repo
 			setupCtx, setupCancel := context.WithTimeout(ctx, 5*time.Minute)
 			setupCmd := shellCommand(setupCtx, serverCfg.Setup)
 			setupCmd.Dir = repoDir
+			setupCmd.Env = mcp.SanitizedEnv(serverCfg.Env)
 			configureProcessGroup(setupCmd)
 			output, err := setupCmd.CombinedOutput()
 			setupCancel()

@@ -23,6 +23,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/alibaba/open-code-review/internal/egress"
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/bedrock"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -67,13 +68,13 @@ const responseHeaderTimeoutMargin = 30 * time.Second
 var httpClientWithHeaderTimeout = func(timeout time.Duration) *http.Client {
 	t, ok := http.DefaultTransport.(*http.Transport)
 	if !ok {
-		return &http.Client{Transport: http.DefaultTransport}
+		return &http.Client{Transport: http.DefaultTransport, CheckRedirect: egress.CheckRedirect}
 	}
 	t = t.Clone()
 	if timeout > 0 {
 		t.ResponseHeaderTimeout = timeout + responseHeaderTimeoutMargin
 	}
-	return &http.Client{Transport: t}
+	return &http.Client{Transport: t, CheckRedirect: egress.CheckRedirect}
 }
 
 // defaultAnthropicMaxTokens is used when ChatRequest.MaxTokens is unset.

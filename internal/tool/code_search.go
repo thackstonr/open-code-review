@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	allowedext "github.com/alibaba/open-code-review/internal/config/allowlist"
 )
 
 const (
@@ -210,6 +212,9 @@ func (p *CodeSearchProvider) gitGrep(ctx context.Context, searchText string, cas
 			continue
 		}
 		fname := parts[offset]
+		if allowedext.IsSecretPath(fname) {
+			continue
+		}
 		ln, parseErr := strconv.Atoi(parts[offset+1])
 		if parseErr != nil {
 			// Skip lines whose line-number field is not numeric.

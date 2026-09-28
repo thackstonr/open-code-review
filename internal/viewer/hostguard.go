@@ -14,6 +14,9 @@ import (
 // default loopback allowlist with additional hostnames (comma-separated).
 const EnvAllowedHosts = "OCR_VIEWER_ALLOWED_HOSTS"
 
+// EnvAllowRemote permits clients outside the loopback interface to use the viewer.
+const EnvAllowRemote = "OCR_VIEWER_ALLOW_REMOTE"
+
 // hostOnly returns the bare host portion of a Host header value, with any
 // port stripped and surrounding brackets removed from IPv6 literals. Empty
 // or malformed input returns "".
@@ -101,6 +104,21 @@ func hostGuard(allowed map[string]struct{}, next http.Handler) http.Handler {
 			return
 		}
 		http.Error(w, "forbidden host", http.StatusForbidden)
+	})
+}
+
+func remoteAccessGuard(allowRemote bool, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if allowRemote {
+			next.ServeHTTP(w, r)
+			return
+		}
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil || !isLoopbackHost(strings.ToLower(host)) {
+			http.Error(w, "forbidden remote client", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 

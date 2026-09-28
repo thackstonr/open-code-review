@@ -88,6 +88,19 @@ func TestReadLines_Disk_EmptyFile(t *testing.T) {
 	}
 }
 
+func TestFileReaderRejectsSecretPath(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, ".env", "API_TOKEN=secret\n")
+	fr := &FileReader{RepoDir: dir, Mode: ModeWorkspace}
+
+	if _, err := fr.Read(context.Background(), ".env"); err == nil || !strings.Contains(err.Error(), "secret path") {
+		t.Fatalf("Read(.env) error = %v, want secret-path rejection", err)
+	}
+	if _, _, err := fr.ReadLines(context.Background(), ".env", 1, 10); err == nil || !strings.Contains(err.Error(), "secret path") {
+		t.Fatalf("ReadLines(.env) error = %v, want secret-path rejection", err)
+	}
+}
+
 func TestReadLines_Disk_StartBeyondEOF(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, dir, "short.txt", "only\n")
@@ -297,6 +310,23 @@ func TestReadLines_Disk_AllowsSymlinkInsideRepo(t *testing.T) {
 	}
 	if len(lines) == 0 || lines[0] != "inside" {
 		t.Fatalf("ReadLines(link.txt) = %q, want inside", lines)
+	}
+}
+
+func TestReadLines_Disk_RejectsSymlinkToSecretInsideRepo(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink privileges vary on Windows")
+	}
+
+	dir := t.TempDir()
+	writeTestFile(t, dir, ".env", "TOKEN=secret\n")
+	if err := os.Symlink(filepath.Join(dir, ".env"), filepath.Join(dir, "config.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	fr := &FileReader{RepoDir: dir, Mode: ModeWorkspace}
+	if _, _, err := fr.ReadLines(context.Background(), "config.txt", 1, 10); err == nil || !strings.Contains(err.Error(), "secret path") {
+		t.Fatalf("ReadLines(config.txt) error = %v, want secret-path rejection", err)
 	}
 }
 

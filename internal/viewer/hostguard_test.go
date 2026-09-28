@@ -163,6 +163,33 @@ func TestHostGuard(t *testing.T) {
 	}
 }
 
+func TestRemoteAccessGuard(t *testing.T) {
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	for _, tc := range []struct {
+		name        string
+		remote      string
+		allowRemote bool
+		want        int
+	}{
+		{"loopback", "127.0.0.1:1234", false, http.StatusNoContent},
+		{"remote denied", "192.0.2.10:1234", false, http.StatusForbidden},
+		{"remote explicitly allowed", "192.0.2.10:1234", true, http.StatusNoContent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "http://localhost/", nil)
+			req.RemoteAddr = tc.remote
+			rec := httptest.NewRecorder()
+			remoteAccessGuard(tc.allowRemote, inner).ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.want)
+			}
+		})
+	}
+}
+
 func TestDisplayAddr(t *testing.T) {
 	cases := []struct {
 		name string

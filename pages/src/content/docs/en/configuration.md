@@ -394,6 +394,20 @@ ocr config set language 中文
 ocr config set language English
 ```
 
+## Restricting outbound endpoints
+
+Set `OCR_ALLOWED_ENDPOINTS` to a comma-separated hostname allowlist for LLM,
+remote MCP, and OTLP HTTP endpoints managed by OCR:
+
+```bash
+export OCR_ALLOWED_ENDPOINTS=localhost,127.0.0.1,api.example.com
+```
+
+Remote plaintext HTTP is rejected by default. Use HTTPS, or set
+`OCR_ALLOW_INSECURE_ENDPOINTS=1` only for a trusted network that cannot use TLS.
+These controls cannot confine a configured local MCP subprocess or credential
+helper; use operating-system firewall or sandbox rules when those are enabled.
+
 ## See Also
 
 - [QuickStart](../quickstart/) — minimal setup and first review.

@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -153,6 +155,102 @@ func TestNewRemoteClient_HeaderExpandsUnsetVar(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "X-Token") {
 		t.Errorf("error = %q, want mention of header name 'X-Token'", err.Error())
+	}
+}
+
+// TestNewRemoteClient_RejectsRemotePlaintext covers the egress policy check at
+// the top of NewRemoteClient: a plaintext http:// URL to a non-loopback host is
+// refused before any connection or header expansion happens.
+func TestNewRemoteClient_RejectsRemotePlaintext(t *testing.T) {
+	_, err := NewRemoteClient(
+		context.Background(),
+		"test-srv",
+		"http://mcp.example.com/mcp",
+		nil,
+		"v0.0.1-test",
+	)
+	if err == nil {
+		t.Fatal("expected error for remote plaintext http endpoint, got nil")
+	}
+	if !strings.Contains(err.Error(), "plaintext http") {
+		t.Errorf("error = %q, want mention of plaintext http rejection", err.Error())
+	}
+}
+
+// TestNewRemoteClient_HeaderBlocksCredentialVar verifies a header template
+// referencing one of open-code-review's own credential env vars is refused, so
+// a remote MCP config cannot exfiltrate the LLM token this process holds.
+func TestNewRemoteClient_HeaderBlocksCredentialVar(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "sk-must-not-leave-this-host")
+
+	_, err := NewRemoteClient(
+		context.Background(),
+		"test-srv",
+		"http://127.0.0.1:1/mcp",
+		map[string]string{"Authorization": "Bearer $ANTHROPIC_AUTH_TOKEN"},
+		"v0.0.1-test",
+	)
+	if err == nil {
+		t.Fatal("expected error when header references a credential variable, got nil")
+	}
+	if !strings.Contains(err.Error(), "credential variable") {
+		t.Errorf("error = %q, want mention of 'credential variable'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "ANTHROPIC_AUTH_TOKEN") {
+		t.Errorf("error = %q, want mention of the blocked variable name", err.Error())
+	}
+}
+
+// TestNewRemoteClient_HeaderAllowsUserVar confirms a user-supplied token under a
+// name the app does not manage still expands: the block list is narrow, so
+// legitimate per-server credentials keep working. Expansion succeeding is proven
+// by reaching the connect stage (the reserved port then refuses).
+func TestNewRemoteClient_HeaderAllowsUserVar(t *testing.T) {
+	t.Setenv("OCR_TEST_USER_TOKEN", "ghp_user_supplied_value")
+
+	_, err := NewRemoteClient(
+		context.Background(),
+		"test-srv",
+		"http://127.0.0.1:1/mcp",
+		map[string]string{"Authorization": "Bearer $OCR_TEST_USER_TOKEN"},
+		"v0.0.1-test",
+	)
+	if err == nil {
+		t.Fatal("expected connect failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "connect to remote MCP server") {
+		t.Errorf("error = %q, want a connect-stage failure proving the header expanded", err.Error())
+	}
+}
+
+func TestHeaderTransportRejectsDifferentOrigin(t *testing.T) {
+	endpoint, _ := url.Parse("https://mcp.example.com/service")
+	transport := &headerTransport{
+		base:       http.DefaultTransport,
+		headers:    map[string]string{"Authorization": "Bearer secret"},
+		serverName: "test-server",
+		endpoint:   endpoint,
+	}
+	req, _ := http.NewRequest(http.MethodPost, "https://redirect.example.com/service", nil)
+	if _, err := transport.RoundTrip(req); err == nil || !strings.Contains(err.Error(), "different origin") {
+		t.Fatalf("RoundTrip() error = %v, want different-origin rejection", err)
+	}
+}
+
+func TestSanitizedEnv(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "must-not-be-inherited")
+	t.Setenv("OCR_MCP_SAFE_VALUE", "kept")
+
+	env := SanitizedEnv([]string{"OPENAI_API_KEY=explicit-grant"})
+	joined := strings.Join(env, "\n")
+	if strings.Contains(joined, "OPENAI_API_KEY=must-not-be-inherited") {
+		t.Fatal("inherited LLM credential reached MCP environment")
+	}
+	if !strings.Contains(joined, "OPENAI_API_KEY=explicit-grant") {
+		t.Fatal("explicit MCP environment override was removed")
+	}
+	if !strings.Contains(joined, "OCR_MCP_SAFE_VALUE="+os.Getenv("OCR_MCP_SAFE_VALUE")) {
+		t.Fatal("non-sensitive environment value was removed")
 	}
 }
 

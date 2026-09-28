@@ -97,7 +97,7 @@ MCP servers live under the `mcp_servers` key in your user config file (`~/.openc
 | `headers` | object | | HTTP header names and string values (`remote` only). Values expand `$VAR` or `${VAR}` from OCR's environment at connection time; a value that expands to empty **fails the connection** rather than being sent empty or dropped. Omit for anonymous access. |
 | `tools` | string array | | Allowlist of tool names to register. Empty = register every tool the server offers. |
 | `setup` | string | | Shell command run once before the server starts (`stdio` only, e.g. install deps). Runs in the repo root with a 5-minute timeout. |
-| `env` | string array | | Extra subprocess environment variables in `KEY=VALUE` form (`stdio` only). |
+| `env` | string array | | Extra subprocess environment variables in `KEY=VALUE` form (`stdio` only). OCR's inherited LLM and cloud credentials are removed; list one explicitly here only when the server needs it. |
 
 For remote servers that require authentication, follow that server's
 instructions for `headers`. Use single quotes around JSON passed to

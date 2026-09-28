@@ -6,9 +6,11 @@ package telemetry
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 
+	"github.com/alibaba/open-code-review/internal/egress"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -84,6 +86,14 @@ func otlpSignalURL(endpoint, signalPath string) string {
 
 // initOTLPProviders dispatches to the gRPC or HTTP exporter based on cfg.OTLPProtocol.
 func initOTLPProviders(ctx context.Context, res *resource.Resource, cfg Config) {
+	policyURL := cfg.OTLPEndpoint
+	if !strings.Contains(policyURL, "://") {
+		policyURL = "https://" + policyURL
+	}
+	if err := egress.CheckEndpoint(policyURL); err != nil {
+		fmt.Fprintf(os.Stderr, "[ocr] WARNING: refusing OTLP endpoint: %v\n", err)
+		return
+	}
 	switch cfg.OTLPProtocol {
 	case "http/protobuf", "http/json":
 		initOTLPHTTPProviders(ctx, res, cfg)
@@ -151,8 +161,10 @@ func initOTLPGRPCProviders(ctx context.Context, res *resource.Resource, cfg Conf
 // OTEL_EXPORTER_OTLP_ENDPOINT is specified as a base. It also derives TLS from the
 // scheme, which is what the separate WithInsecure call was doing by hand.
 func initOTLPHTTPProviders(ctx context.Context, res *resource.Resource, cfg Config) {
+	httpClient := &http.Client{CheckRedirect: egress.CheckRedirect}
 	traceExp, err := otlptracehttp.New(ctx,
-		otlptracehttp.WithEndpointURL(otlpSignalURL(cfg.OTLPEndpoint, "/v1/traces")))
+		otlptracehttp.WithEndpointURL(otlpSignalURL(cfg.OTLPEndpoint, "/v1/traces")),
+		otlptracehttp.WithHTTPClient(httpClient))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[ocr] WARNING: failed to create OTLP HTTP trace exporter: %v\n", err)
 		return
@@ -166,7 +178,8 @@ func initOTLPHTTPProviders(ctx context.Context, res *resource.Resource, cfg Conf
 	shutdownFuncs = append(shutdownFuncs, func(ctx context.Context) error { return tp.Shutdown(ctx) })
 
 	metricExp, err := otlpmetrichttp.New(ctx,
-		otlpmetrichttp.WithEndpointURL(otlpSignalURL(cfg.OTLPEndpoint, "/v1/metrics")))
+		otlpmetrichttp.WithEndpointURL(otlpSignalURL(cfg.OTLPEndpoint, "/v1/metrics")),
+		otlpmetrichttp.WithHTTPClient(httpClient))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[ocr] WARNING: failed to create OTLP HTTP metric exporter: %v\n", err)
 		return

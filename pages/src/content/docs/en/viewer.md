@@ -24,14 +24,12 @@ The default address is `localhost:5483`. The server holds the foreground
 `~/.opencodereview/sessions/` on each request, so a review running in
 another terminal shows up the moment its JSONL file appears.
 
-> **DNS-rebinding protection.** The viewer checks the `Host` header
-> against a loopback allowlist (`localhost`, `127.0.0.1`, `::1`). A
-> concrete bind host (e.g. `--addr 192.168.1.10:5483`) is added
-> automatically, but **wildcard** binds (`:3000`, `0.0.0.0`, `::`) are
-> not — reaching the UI from a LAN IP or hostname then returns
-> `forbidden host`. To expose a wildcard bind, set
-> `OCR_VIEWER_ALLOWED_HOSTS` to a comma-separated list of allowed
-> hostnames (e.g. `OCR_VIEWER_ALLOWED_HOSTS=box.local,192.168.1.10`).
+> **Remote-access protection.** By default, only clients connecting from a
+> loopback address may use the viewer, even when it is bound to a LAN or
+> wildcard address. Remote access requires `OCR_VIEWER_ALLOW_REMOTE=1`.
+> The viewer also checks the `Host` header against a DNS-rebinding allowlist.
+> Concrete bind hosts are added automatically; wildcard binds additionally
+> require `OCR_VIEWER_ALLOWED_HOSTS` with the permitted hostnames or IPs.
 
 ## Opening the browser
 

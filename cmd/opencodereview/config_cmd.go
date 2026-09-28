@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/alibaba/open-code-review/internal/config/template"
+	"github.com/alibaba/open-code-review/internal/configtrust"
 	"github.com/alibaba/open-code-review/internal/llm"
 	"github.com/spf13/cobra"
 )
@@ -590,6 +591,9 @@ func LoadAppConfig(path string) (*Config, error) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("read app config %s: %w", path, err)
+	}
+	if err := configtrust.Check(path); err != nil {
+		return nil, err
 	}
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {

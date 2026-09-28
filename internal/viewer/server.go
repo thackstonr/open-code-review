@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -58,7 +59,8 @@ func StartServer(addr, openMode string) error {
 	guarded := hostGuard(allowed, mux)
 
 	// Outermost layer: set defense-in-depth security headers on every response.
-	handler := securityHeaders(guarded)
+	remoteGuarded := remoteAccessGuard(os.Getenv(EnvAllowRemote) == "1", guarded)
+	handler := securityHeaders(remoteGuarded)
 
 	srv := &http.Server{
 		Handler: handler,

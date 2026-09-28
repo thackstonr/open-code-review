@@ -89,6 +89,15 @@ func TestFileFind_BlankQuery(t *testing.T) {
 	}
 }
 
+func TestShouldSkipFile_SecretPath(t *testing.T) {
+	if !shouldSkipFile("config/.env.production") {
+		t.Fatal("secret path should be hidden from file_find")
+	}
+	if shouldSkipFile("config/.env.example") {
+		t.Fatal("documented environment template should remain visible")
+	}
+}
+
 func setupFileFindRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()

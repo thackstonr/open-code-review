@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/alibaba/open-code-review/internal/egress"
 )
 
 // ResolvedEndpoint holds the resolved LLM endpoint configuration.
@@ -121,7 +123,11 @@ func ResolveEndpointWithOptions(configPath string, opts ResolveOptions) (Resolve
 			}
 			return ResolvedEndpoint{}, fmt.Errorf("resolve OCR config file: provider %q is not configured in %s section because the config file does not exist", opts.Provider, section)
 		}
-		return finalizeResolvedEndpoint("OCR config file", ep, env), nil
+		resolved := finalizeResolvedEndpoint("OCR config file", ep, env)
+		if err := egress.CheckEndpoint(resolved.URL); err != nil {
+			return ResolvedEndpoint{}, err
+		}
+		return resolved, nil
 	}
 
 	strategies := []struct {
@@ -143,7 +149,11 @@ func ResolveEndpointWithOptions(configPath string, opts ResolveOptions) (Resolve
 		// transport supplies both. Everything else still needs all three.
 		complete := ep.Model != "" && (ep.AmbientAuth || (ep.URL != "" && ep.Token != ""))
 		if ok && complete {
-			return finalizeResolvedEndpoint(strategy.name, ep, env), nil
+			resolved := finalizeResolvedEndpoint(strategy.name, ep, env)
+			if err := egress.CheckEndpoint(resolved.URL); err != nil {
+				return ResolvedEndpoint{}, err
+			}
+			return resolved, nil
 		}
 	}
 
@@ -373,6 +383,9 @@ func tryOCRConfig(path string, opts ResolveOptions) (ResolvedEndpoint, bool, err
 		if os.IsNotExist(err) {
 			return ResolvedEndpoint{}, false, nil
 		}
+		return ResolvedEndpoint{}, false, err
+	}
+	if err := configFileTrusted(path); err != nil {
 		return ResolvedEndpoint{}, false, err
 	}
 

@@ -153,6 +153,21 @@ func TestGitGrep_WorkspaceMode_Found(t *testing.T) {
 	}
 }
 
+func TestGitGrep_HidesSecretPathMatches(t *testing.T) {
+	dir := setupTestRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("OCR_SECRET_NEEDLE=value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := NewCodeSearch(&FileReader{RepoDir: dir, Mode: ModeWorkspace})
+	result, err := p.gitGrep(context.Background(), "OCR_SECRET_NEEDLE", true, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(result, "OCR_SECRET_NEEDLE") || strings.Contains(result, ".env") {
+		t.Fatalf("secret match reached code_search output: %q", result)
+	}
+}
+
 func TestGitGrep_WorkspaceMode_NoMatch(t *testing.T) {
 	dir := setupTestRepo(t)
 	p := NewCodeSearch(&FileReader{RepoDir: dir, Ref: "", Mode: ModeWorkspace})

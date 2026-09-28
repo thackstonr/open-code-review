@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/alibaba/open-code-review/internal/configtrust"
 )
 
 const (
@@ -77,6 +79,9 @@ func LoadFromJSON(cfg *Config, configPath string) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
+		return err
+	}
+	if err := configtrust.Check(configPath); err != nil {
 		return err
 	}
 
